@@ -85,10 +85,7 @@ fun HomeScreen() {
                     if (streamUrl.isNotEmpty()) {
                         HomeVideoPlayer(url = streamUrl)
                     } else {
-                        Box(
-                            Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)).background(Color(0xFFF5F5F5)),
-                            contentAlignment = Alignment.Center
-                        ) { Text("Live stream unavailable", color = Color.Gray) }
+                        LiveDarshanComingSoon()
                     }
                 }
             }
@@ -209,6 +206,50 @@ private fun NewsCarouselCard(news: News) {
 }
 
 
+
+@Composable
+private fun LiveDarshanComingSoon() {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Brush.verticalGradient(listOf(Color(0xFFFFF3E0), Color(0xFFFFF8F0))))
+            .padding(vertical = 32.dp, horizontal = 20.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("🙏", fontSize = 44.sp)
+            Spacer(Modifier.height(12.dp))
+            Text(
+                "Live Darshan — Coming Soon",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF800000)
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                "Live darshan streaming will be available soon.\nPlease check back during aarti timings.",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color(0xFF888888),
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                lineHeight = 18.sp
+            )
+            Spacer(Modifier.height(14.dp))
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = Color(0xFF800000)
+            ) {
+                Text(
+                    "🔔 Stay Tuned",
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = Color.White,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun HomeVideoPlayer(url: String) {
