@@ -82,8 +82,9 @@ fun HomeScreen() {
                 Column(Modifier.padding(16.dp)) {
                     Text("Live Darshan", style = MaterialTheme.typography.titleMedium, color = Color(0xFF800000))
                     Spacer(Modifier.height(12.dp))
-                    if (streamUrl.isNotEmpty()) {
-                        HomeVideoPlayer(url = streamUrl)
+                    var videoError by remember { mutableStateOf(false) }
+                    if (streamUrl.isNotEmpty() && !videoError) {
+                        HomeVideoPlayer(url = streamUrl, onError = { videoError = true })
                     } else {
                         LiveDarshanComingSoon()
                     }
@@ -252,7 +253,7 @@ private fun LiveDarshanComingSoon() {
 }
 
 @Composable
-private fun HomeVideoPlayer(url: String) {
+private fun HomeVideoPlayer(url: String, onError: () -> Unit = {}) {
     val isFacebook = url.contains("fbcdn.net") || url.contains("facebook.com")
 
     Box(
@@ -268,7 +269,17 @@ private fun HomeVideoPlayer(url: String) {
                         settings.domStorageEnabled = true
                         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                         setBackgroundColor(android.graphics.Color.BLACK)
-                        webViewClient = WebViewClient()
+                        webViewClient = object : WebViewClient() {
+                            override fun onReceivedError(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                                if (request?.isForMainFrame == true) onError()
+                            }
+                            override fun onPageFinished(view: android.webkit.WebView?, loadedUrl: String?) {
+                                // Inject JS to detect Facebook's "video unavailable" error block
+                                view?.evaluateJavascript(
+                                    "(function(){ var el = document.querySelector('._8jwo,._video_error,#u_0_0_error'); return el ? 'error' : 'ok'; })()"
+                                ) { result -> if (result?.contains("error") == true) onError() }
+                            }
+                        }
                         webChromeClient = WebChromeClient()
                         val embedUrl = "https://www.facebook.com/plugins/video.php?href=${java.net.URLEncoder.encode(url, "UTF-8")}&show_text=false&mute=0&autoplay=1"
                         loadUrl(embedUrl)
@@ -280,7 +291,7 @@ private fun HomeVideoPlayer(url: String) {
             var error by remember { mutableStateOf(false) }
             var buffering by remember { mutableStateOf(true) }
             if (error) {
-                Text("⚠️ Video unavailable", color = Color.Gray)
+                LaunchedEffect(Unit) { onError() }
             } else {
                 AndroidView(
                     factory = { ctx ->
@@ -293,7 +304,7 @@ private fun HomeVideoPlayer(url: String) {
                                 val am = ctx.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
                                 am.requestAudioFocus(null, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN)
                             }
-                            setOnErrorListener { _, _, _ -> error = true; true }
+                            setOnErrorListener { _, _, _ -> error = true; onError(); true }
                             val mc = android.widget.MediaController(ctx)
                             mc.setAnchorView(this)
                             setMediaController(mc)
@@ -318,7 +329,7 @@ private fun EventCard(event: Event) {
             Text(event.title, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(6.dp))
             event.eventDate?.let {
-                Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFFE8860C))
+                Text(formatEventDate(it), style = MaterialTheme.typography.bodySmall, color = Color(0xFFE8860C))
             }
             Spacer(Modifier.height(4.dp))
             if (event.allDayEvent) {
@@ -333,6 +344,13 @@ private fun EventCard(event: Event) {
 private fun formatNewsDate(dt: String): String {
     return try {
         val parts = dt.split("T")[0].split("-")
-        "${parts[2]}/${parts[1]}/${parts[0]}"
+        "${parts[2]}-${parts[1]}-${parts[0]}"
+    } catch (_: Exception) { dt }
+}
+
+private fun formatEventDate(dt: String): String {
+    return try {
+        val parts = dt.split("T")[0].split("-")
+        "${parts[2]}-${parts[1]}-${parts[0]}"
     } catch (_: Exception) { dt }
 }
