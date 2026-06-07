@@ -93,5 +93,11 @@ dependencies {
     // Coil for image loading
     implementation 'io.coil-kt:coil-compose:2.5.0'
 
+    // ExoPlayer (Media3) for live stream
+    implementation 'androidx.media3:media3-exoplayer:1.2.1'
+    implementation 'androidx.media3:media3-exoplayer-hls:1.2.1'
+    implementation 'androidx.media3:media3-exoplayer-dash:1.2.1'
+    implementation 'androidx.media3:media3-ui:1.2.1'
+
     debugImplementation 'androidx.compose.ui:ui-tooling'
 }

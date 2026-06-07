@@ -1,3 +1,5 @@
+@file:OptIn(androidx.media3.common.util.UnstableApi::class)
+
 package com.chehartemple.app.ui.screens
 
 import android.webkit.WebChromeClient
@@ -23,11 +25,20 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.media3.common.MediaItem
+import androidx.media3.common.PlaybackException
+import androidx.media3.common.Player
+import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.ui.PlayerView
 import com.chehartemple.app.data.api.ActivityTracker
 import com.chehartemple.app.data.api.RetrofitClient
 import com.chehartemple.app.data.model.Event
@@ -46,8 +57,9 @@ fun HomeScreen() {
     LaunchedEffect(Unit) {
         scope.launch {
             try {
-                streamUrl = RetrofitClient.api.getLiveStream().url
-                if (streamUrl.isEmpty()) streamUrl = RetrofitClient.api.getFacebookLatestVideo().url
+                val liveUrl = RetrofitClient.api.getLiveStream().url
+                streamUrl = if (!liveUrl.isNullOrBlank()) liveUrl
+                            else RetrofitClient.api.getFacebookLatestVideo().url ?: ""
                 if (streamUrl.isNotEmpty()) ActivityTracker.trackAction("VIEW_LIVE_STREAM", "Home", "Watching live darshan")
                 events = RetrofitClient.api.getHomeEvents()
                 news = RetrofitClient.api.getNews()
@@ -107,7 +119,6 @@ fun HomeScreen() {
             item { Text("Latest News", style = MaterialTheme.typography.titleMedium) }
             item { NewsCarousel(news) }
         }
-
     }
 }
 
@@ -116,7 +127,6 @@ fun HomeScreen() {
 private fun NewsCarousel(news: List<News>) {
     val pagerState = rememberPagerState(pageCount = { news.size })
 
-    // Auto-scroll every 2 seconds
     LaunchedEffect(pagerState) {
         while (true) {
             delay(2000)
@@ -134,12 +144,8 @@ private fun NewsCarousel(news: List<News>) {
             NewsCarouselCard(news[page])
         }
 
-        // Dot indicators
         Spacer(Modifier.height(10.dp))
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.Center
-        ) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
             repeat(news.size) { i ->
                 Box(
                     Modifier
@@ -161,12 +167,9 @@ private fun NewsCarouselCard(news: News) {
         colors = CardDefaults.cardColors(containerColor = Color.White)
     ) {
         Box(Modifier.fillMaxSize()) {
-            // Gradient background
             Box(
                 Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        colors = listOf(Color(0xFFFFF8E8), Color.White)
-                    )
+                    Brush.verticalGradient(colors = listOf(Color(0xFFFFF8E8), Color.White))
                 )
             )
             Column(
@@ -195,18 +198,12 @@ private fun NewsCarouselCard(news: News) {
                     }
                 }
                 news.createdAt?.let {
-                    Text(
-                        formatNewsDate(it),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF999999)
-                    )
+                    Text(formatNewsDate(it), style = MaterialTheme.typography.labelSmall, color = Color(0xFF999999))
                 }
             }
         }
     }
 }
-
-
 
 @Composable
 private fun LiveDarshanComingSoon() {
@@ -236,10 +233,7 @@ private fun LiveDarshanComingSoon() {
                 lineHeight = 18.sp
             )
             Spacer(Modifier.height(14.dp))
-            Surface(
-                shape = RoundedCornerShape(20.dp),
-                color = Color(0xFF800000)
-            ) {
+            Surface(shape = RoundedCornerShape(20.dp), color = Color(0xFF800000)) {
                 Text(
                     "🔔 Stay Tuned",
                     modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
@@ -254,66 +248,147 @@ private fun LiveDarshanComingSoon() {
 
 @Composable
 private fun HomeVideoPlayer(url: String, onError: () -> Unit = {}) {
-    val isFacebook = url.contains("fbcdn.net") || url.contains("facebook.com")
+    val isYouTube = url.contains("youtube.com") || url.contains("youtu.be")
+    val isFacebook = url.contains("facebook.com") || url.contains("fbcdn.net")
 
     Box(
-        Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)),
+        Modifier.fillMaxWidth().height(210.dp).clip(RoundedCornerShape(12.dp)),
         contentAlignment = Alignment.Center
     ) {
-        if (isFacebook) {
-            AndroidView(
-                factory = { ctx ->
-                    WebView(ctx).apply {
-                        settings.javaScriptEnabled = true
-                        settings.mediaPlaybackRequiresUserGesture = false
-                        settings.domStorageEnabled = true
-                        settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                        setBackgroundColor(android.graphics.Color.BLACK)
-                        webViewClient = object : WebViewClient() {
-                            override fun onReceivedError(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                                if (request?.isForMainFrame == true) onError()
-                            }
-                            override fun onPageFinished(view: android.webkit.WebView?, loadedUrl: String?) {
-                                // Inject JS to detect Facebook's "video unavailable" error block
-                                view?.evaluateJavascript(
-                                    "(function(){ var el = document.querySelector('._8jwo,._video_error,#u_0_0_error'); return el ? 'error' : 'ok'; })()"
-                                ) { result -> if (result?.contains("error") == true) onError() }
-                            }
-                        }
-                        webChromeClient = WebChromeClient()
-                        val embedUrl = "https://www.facebook.com/plugins/video.php?href=${java.net.URLEncoder.encode(url, "UTF-8")}&show_text=false&mute=0&autoplay=1"
-                        loadUrl(embedUrl)
+        when {
+            isYouTube -> YoutubeWebPlayer(url = url, onError = onError)
+            isFacebook -> FacebookWebPlayer(url = url, onError = onError)
+            else -> ExoLivePlayer(url = url, onError = onError)
+        }
+    }
+}
+
+@Composable
+private fun YoutubeWebPlayer(url: String, onError: () -> Unit) {
+    val videoId = remember(url) {
+        listOf(
+            Regex("v=([a-zA-Z0-9_-]{11})"),
+            Regex("youtu\\.be/([a-zA-Z0-9_-]{11})"),
+            Regex("embed/([a-zA-Z0-9_-]{11})")
+        ).firstNotNullOfOrNull { it.find(url)?.groupValues?.get(1) } ?: ""
+    }
+    if (videoId.isEmpty()) {
+        LaunchedEffect(Unit) { onError() }
+        return
+    }
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                settings.javaScriptEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.domStorageEnabled = true
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                setBackgroundColor(android.graphics.Color.BLACK)
+                webViewClient = object : WebViewClient() {
+                    override fun onReceivedError(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                        if (request?.isForMainFrame == true) onError()
                     }
-                },
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            var error by remember { mutableStateOf(false) }
-            var buffering by remember { mutableStateOf(true) }
-            if (error) {
-                LaunchedEffect(Unit) { onError() }
-            } else {
-                AndroidView(
-                    factory = { ctx ->
-                        android.widget.VideoView(ctx).apply {
-                            setVideoURI(android.net.Uri.parse(url))
-                            setOnPreparedListener { mp ->
-                                buffering = false
-                                mp.setVolume(1.0f, 1.0f)
-                                mp.start()
-                                val am = ctx.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
-                                am.requestAudioFocus(null, android.media.AudioManager.STREAM_MUSIC, android.media.AudioManager.AUDIOFOCUS_GAIN)
-                            }
-                            setOnErrorListener { _, _, _ -> error = true; onError(); true }
-                            val mc = android.widget.MediaController(ctx)
-                            mc.setAnchorView(this)
-                            setMediaController(mc)
-                        }
-                    },
-                    modifier = Modifier.fillMaxSize()
-                )
-                if (buffering) CircularProgressIndicator(color = MaterialTheme.colorScheme.primary, modifier = Modifier.size(28.dp))
+                }
+                webChromeClient = WebChromeClient()
+                val html = """
+                    <html><body style="margin:0;padding:0;background:#000;">
+                    <iframe width="100%" height="100%"
+                        src="https://www.youtube.com/embed/$videoId?autoplay=1&mute=0&playsinline=1&rel=0"
+                        frameborder="0" allow="autoplay; encrypted-media" allowfullscreen>
+                    </iframe></body></html>
+                """.trimIndent()
+                loadDataWithBaseURL("https://www.youtube.com", html, "text/html", "utf-8", null)
             }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+@Composable
+private fun FacebookWebPlayer(url: String, onError: () -> Unit) {
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                settings.javaScriptEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.domStorageEnabled = true
+                settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                setBackgroundColor(android.graphics.Color.BLACK)
+                webViewClient = object : WebViewClient() {
+                    override fun onReceivedError(view: android.webkit.WebView?, request: android.webkit.WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                        if (request?.isForMainFrame == true) onError()
+                    }
+                }
+                webChromeClient = WebChromeClient()
+                val embedUrl = "https://www.facebook.com/plugins/video.php?href=${java.net.URLEncoder.encode(url, "UTF-8")}&show_text=false&mute=0&autoplay=1"
+                loadUrl(embedUrl)
+            }
+        },
+        modifier = Modifier.fillMaxSize()
+    )
+}
+
+@Composable
+private fun ExoLivePlayer(url: String, onError: () -> Unit) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var isBuffering by remember { mutableStateOf(true) }
+    var hasError by remember { mutableStateOf(false) }
+
+    val exoPlayer = remember(url) {
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(1_000, 5_000, 500, 1_000)
+            .build()
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build()
+            .apply {
+                setMediaItem(MediaItem.fromUri(url))
+                playWhenReady = true
+                prepare()
+                addListener(object : Player.Listener {
+                    override fun onPlaybackStateChanged(state: Int) {
+                        isBuffering = state == Player.STATE_BUFFERING
+                    }
+                    override fun onPlayerError(error: PlaybackException) {
+                        hasError = true
+                        onError()
+                    }
+                })
+            }
+    }
+
+    if (hasError) return
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> exoPlayer.play()
+                Lifecycle.Event.ON_PAUSE -> exoPlayer.pause()
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            exoPlayer.release()
+        }
+    }
+
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        AndroidView(
+            factory = {
+                PlayerView(it).apply {
+                    player = exoPlayer
+                    useController = true
+                    setShowBuffering(PlayerView.SHOW_BUFFERING_NEVER)
+                    setBackgroundColor(android.graphics.Color.BLACK)
+                }
+            },
+            modifier = Modifier.fillMaxSize()
+        )
+        if (isBuffering) {
+            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
         }
     }
 }

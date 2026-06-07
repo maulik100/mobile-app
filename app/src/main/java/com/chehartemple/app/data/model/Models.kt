@@ -109,7 +109,7 @@ data class TempleTiming(
     val specialNote: String?
 )
 
-data class LiveStream(val url: String)
+data class LiveStream(val url: String? = null)
 data class SocialMedia(val facebook: String, val instagram: String, val youtube: String)
 data class ContactInfo(val email: String = "", val phone: String = "", val address: String = "")
 data class MessageResponse(val message: String)
