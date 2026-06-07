@@ -6,6 +6,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -17,6 +18,8 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +34,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.MediaItem
@@ -39,10 +43,13 @@ import androidx.media3.common.Player
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import coil.compose.AsyncImage
+import com.chehartemple.app.BuildConfig
 import com.chehartemple.app.data.api.ActivityTracker
 import com.chehartemple.app.data.api.RetrofitClient
 import com.chehartemple.app.data.model.Event
 import com.chehartemple.app.data.model.News
+import com.chehartemple.app.data.model.Sponsor
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -51,6 +58,7 @@ fun HomeScreen() {
     var streamUrl by remember { mutableStateOf("") }
     var events by remember { mutableStateOf<List<Event>>(emptyList()) }
     var news by remember { mutableStateOf<List<News>>(emptyList()) }
+    var sponsors by remember { mutableStateOf<List<Sponsor>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     val scope = rememberCoroutineScope()
 
@@ -63,6 +71,25 @@ fun HomeScreen() {
                 if (streamUrl.isNotEmpty()) ActivityTracker.trackAction("VIEW_LIVE_STREAM", "Home", "Watching live darshan")
                 events = RetrofitClient.api.getHomeEvents()
                 news = RetrofitClient.api.getNews()
+                val sponsorResponse = RetrofitClient.api.getActiveSponsors()
+                @Suppress("UNCHECKED_CAST")
+                val rawList = sponsorResponse["data"] as? List<Map<String, Any>> ?: emptyList()
+                // BASE_URL is like https://host/api/ — strip /api to get server root
+                val serverRoot = BuildConfig.API_BASE_URL.removeSuffix("/").removeSuffix("/api")
+                sponsors = rawList.map { m ->
+                    val rawMediaUrl = m["mediaUrl"] as? String ?: ""
+                    val rawThumbUrl = m["thumbnailUrl"] as? String
+                    Sponsor(
+                        id = (m["id"] as? Double)?.toLong() ?: 0L,
+                        title = m["title"] as? String ?: "",
+                        description = m["description"] as? String,
+                        mediaType = m["mediaType"] as? String ?: "IMAGE",
+                        mediaUrl = if (rawMediaUrl.startsWith("/")) serverRoot + rawMediaUrl else rawMediaUrl,
+                        thumbnailUrl = rawThumbUrl?.let { if (it.startsWith("/")) serverRoot + it else it },
+                        redirectUrl = m["redirectUrl"] as? String,
+                        sponsorStatus = m["sponsorStatus"] as? String ?: "ACTIVE"
+                    )
+                }
             } catch (_: Exception) {}
             loading = false
         }
@@ -102,6 +129,11 @@ fun HomeScreen() {
                     }
                 }
             }
+        }
+
+        // Sponsors
+        if (sponsors.isNotEmpty()) {
+            item { SponsorCarousel(sponsors = sponsors) }
         }
 
         // Upcoming Events
@@ -389,6 +421,151 @@ private fun ExoLivePlayer(url: String, onError: () -> Unit) {
         )
         if (isBuffering) {
             CircularProgressIndicator(color = Color.White, modifier = Modifier.size(36.dp))
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun SponsorCarousel(sponsors: List<Sponsor>) {
+    val pagerState = rememberPagerState(pageCount = { sponsors.size })
+    var selectedSponsor by remember { mutableStateOf<Sponsor?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(pagerState) {
+        while (true) {
+            delay(15_000)
+            val next = (pagerState.currentPage + 1) % sponsors.size
+            pagerState.animateScrollToPage(next)
+        }
+    }
+
+    Card(
+        modifier = Modifier.fillMaxWidth().shadow(4.dp, RoundedCornerShape(12.dp)),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = Color.White)
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("🤝 Sponsored By", style = MaterialTheme.typography.titleMedium, color = Color(0xFF6A1B9A))
+            Spacer(Modifier.height(10.dp))
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxWidth().height(160.dp)
+            ) { page ->
+                val sponsor = sponsors[page]
+                Box(
+                    Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFFF3E5F5))
+                ) {
+                    if (sponsor.mediaType == "IMAGE") {
+                        AsyncImage(
+                            model = sponsor.mediaUrl,
+                            contentDescription = sponsor.title,
+                            modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(10.dp)),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                    } else {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    webChromeClient = WebChromeClient()
+                                    webViewClient = WebViewClient()
+                                    setBackgroundColor(android.graphics.Color.BLACK)
+                                    loadUrl(sponsor.mediaUrl)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                    // Tap overlay
+                    Box(
+                        Modifier.fillMaxSize().background(Color.Transparent)
+                            .then(Modifier.clickable(onClick = { selectedSponsor = sponsor }))
+                    )
+                    // Title chip
+                    Box(Modifier.align(Alignment.BottomStart).padding(8.dp)) {
+                        Surface(shape = RoundedCornerShape(8.dp), color = Color(0xCC6A1B9A)) {
+                            Text(sponsor.title, modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                style = MaterialTheme.typography.labelSmall, color = Color.White,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+            if (sponsors.size > 1) {
+                Spacer(Modifier.height(8.dp))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                    repeat(sponsors.size) { i ->
+                        Box(Modifier.padding(horizontal = 3.dp)
+                            .size(width = if (pagerState.currentPage == i) 16.dp else 8.dp, height = 8.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (pagerState.currentPage == i) Color(0xFF6A1B9A) else Color(0xFFCE93D8)))
+                    }
+                }
+            }
+        }
+    }
+
+    selectedSponsor?.let { sponsor ->
+        SponsorModal(sponsor = sponsor, onDismiss = { selectedSponsor = null })
+    }
+}
+
+@Composable
+private fun SponsorModal(sponsor: Sponsor, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    Dialog(onDismissRequest = onDismiss) {
+        Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color.White)) {
+            Column(Modifier.padding(20.dp)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text(sponsor.title, style = MaterialTheme.typography.titleMedium, color = Color(0xFF6A1B9A),
+                        modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = Color(0xFF888888))
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                if (sponsor.mediaType == "IMAGE") {
+                    AsyncImage(
+                        model = sponsor.mediaUrl,
+                        contentDescription = sponsor.title,
+                        modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(10.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                    )
+                } else {
+                    Box(Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(10.dp)).background(Color.Black)) {
+                        AndroidView(
+                            factory = { ctx ->
+                                WebView(ctx).apply {
+                                    settings.javaScriptEnabled = true
+                                    settings.mediaPlaybackRequiresUserGesture = false
+                                    webChromeClient = WebChromeClient()
+                                    webViewClient = WebViewClient()
+                                    loadUrl(sponsor.mediaUrl)
+                                }
+                            },
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
+                }
+                sponsor.description?.let {
+                    Spacer(Modifier.height(10.dp))
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = Color(0xFF555555), lineHeight = 18.sp)
+                }
+                if (!sponsor.redirectUrl.isNullOrBlank()) {
+                    Spacer(Modifier.height(14.dp))
+                    Button(
+                        onClick = {
+                            val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(sponsor.redirectUrl))
+                            context.startActivity(intent)
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6A1B9A))
+                    ) { Text("🔗 Visit Sponsor", color = Color.White) }
+                }
+            }
         }
     }
 }

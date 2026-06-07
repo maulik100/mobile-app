@@ -114,6 +114,17 @@ data class SocialMedia(val facebook: String, val instagram: String, val youtube:
 data class ContactInfo(val email: String = "", val phone: String = "", val address: String = "")
 data class MessageResponse(val message: String)
 
+data class Sponsor(
+    val id: Long,
+    val title: String,
+    val description: String? = null,
+    val mediaType: String,           // "IMAGE" or "VIDEO"
+    val mediaUrl: String,
+    val thumbnailUrl: String? = null,
+    val redirectUrl: String? = null,
+    val sponsorStatus: String
+)
+
 // Instagram models
 data class InstagramMedia(
     val id: String,

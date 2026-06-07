@@ -95,6 +95,12 @@ interface TempleApi {
     @GET("live-stream")
     suspend fun getLiveStream(): LiveStream
 
+    @GET("sponsors/active")
+    suspend fun getActiveSponsors(): Map<String, Any>
+
+    @POST("sponsors/{id}/click")
+    suspend fun recordSponsorClick(@Path("id") id: Long): Unit
+
     @GET("config/social-media")
     suspend fun getSocialMedia(): SocialMedia
 
